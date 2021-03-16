@@ -11,30 +11,28 @@
 // "white" in every pixel;
 // the screen should remain fully clear as long as no key is pressed.
 
-PSEUDO CODE
-(LOOP)
-    if RAM[KBD] == 0:
-        fill = 0
-    else:
-        fill = -1
-    for (i=0; i<256; i++):
-        RAM[SCREEN + 32*i] = fill 
-    goto LOOP
+// PSEUDO CODE
+// (LOOP)
+//     if RAM[KBD] == 0:
+//         fill = 0
+//     else:
+//         fill = -1
+//     for (i=0; i<8192; i++):
+//         RAM[SCREEN + i] = fill 
+//     goto LOOP
 
 // fill = 0
 // i = 0
-// m = 256
-// j = 0
-// n = 512
-// addr = SCREEN + 32*i
+// n = 8192
+// addr = SCREEN + i
 
 (START)
     @i
     M=0    // i=0
-    @256
+    @8192
     D=A
-    @m
-    M=D    // m=256
+    @n
+    M=D    // n=8192
     @SCREEN
     D=A
     @addr
@@ -58,11 +56,11 @@ PSEUDO CODE
 (LOOP)    
     @i
     D=M
-    @m
+    @n
     D=D-M
     @START
-    D;JEQ    // if i==m goto START
-
+    D;JEQ    // if i==n goto START
+    
     @fill
     D=M
     @addr
@@ -71,9 +69,7 @@ PSEUDO CODE
 
     @i
     M=M+1    // i++
-    @32
-    D=A
     @addr
-    M=D+M    // addr += 32
+    M=M+1    // addr++
     @LOOP
     0;JMP
