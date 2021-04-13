@@ -1,5 +1,3 @@
-# NO SYMBOLS
-
 def main():
     import sys
     from parsr import Parser, A_COMMAND, C_COMMAND, L_COMMAND
