@@ -1,94 +1,86 @@
-import sys
+import re
 from pathlib import Path
-import Parser
-import CodeWriter
 
 
-class VMTranslator():
-    def __init__(self) -> None:
-        self.parser = None
-        self.code_writer = None
-        self.input_path_is_dir = None
-        self.vm_files_count = 0
-        self.asm_file = None
-        self.has_boostrap = False
-        self.current_file = None
+class Parser:
+    """
+    Parses a single .vm file and encapsulates access to input code.
+    Reads VM commands, parses them, and provides access to their components.
+    Removes all white space and comments.
 
-    def set_input_output_files(self, vm_file) -> None:
-        self.parser = Parser.Parser(vm_file)
+    A command is composed of three parts:
+    <command> <segment> <index>
+    e.g. push local 2
 
-        if self.input_path_is_dir:
-            asm_file = self.asm_file.with_suffix('.asm')
+    If command type is arithmetic, segment and index parts are excluded.
+    e.g. add
+    """
+
+    def __init__(self, vm_file) -> None:
+        self.in_file = vm_file
+        self.in_file_name = Path(vm_file).stem
+
+        self.lines = self.remove_comments(self.remove_empty_strings(vm_file))
+        self.lines.reverse()
+        self.current_line = None
+        self.command_types = self.command_types_dict()
+
+    def remove_comments(self, lines: list) -> list:
+        return [re.sub(r'//(.+)*', '', line) for line in lines]
+
+    def remove_empty_strings(self, vm_file) -> list:
+        lines = []
+        with open(vm_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    lines.append(line)
+        return lines
+
+    def advance(self) -> None:
+        self.current_line = self.lines.pop()
+
+    def has_more_commands(self) -> bool:
+        return self.lines != []
+
+    def command_type(self):
+        if len(self.current_line) == 0:
+            return None
+        elif self.current_line.count(' ') < 1:
+            return self.command_types.get(self.current_line.rstrip())
         else:
-            asm_file = vm_file.with_suffix('.asm')
+            return self.command_types.get(self.current_line.split()[0])
 
-        self.code_writer = CodeWriter.CodeWriter(asm_file, self.current_file)
+    def command_types_dict(self) -> dict:
+        return {
+            'add': 'C_ARITHMETIC',
+            'sub': 'C_ARITHMETIC',
+            'neg': 'C_ARITHMETIC',
+            'eq': 'C_ARITHMETIC',
+            'gt': 'C_ARITHMETIC',
+            'lt': 'C_ARITHMETIC',
+            'and': 'C_ARITHMETIC',
+            'or': 'C_ARITHMETIC',
+            'not': 'C_ARITHMETIC',
+            'push': 'C_PUSH',
+            'pop': 'C_POP',
+            'label': 'C_LABEL',
+            'goto': 'C_GOTO',
+            'if-goto': 'C_IF',
+            'function': 'C_FUNCTION',
+            'return': 'C_RETURN',
+            'call': 'C_CALL',
+        }
 
-    def write_bootstrap(self) -> None:
-        if self.input_path_is_dir and self.vm_files_count > 1:
-            self.code_writer.write_bootstrap()
-            self.code_writer.write_line('')
-            self.has_boostrap = True
+    def command(self) -> str:
+        # Returns vm command (e.g. push, pop, add, sub, etc.)
+        return self.current_line.split()[0]
 
-    def translate(self) -> None:
-        if not self.has_boostrap:
-            self.write_bootstrap()
+    def arg1(self) -> str:
+        # Returns first argument of current command.
+        # Should be called only if current command is
+        # C_PUSH, C_POP, C_FUNCTION or C_CALL.
+        # Should NOT be called if current command is C_RETURN.
+        return self.current_line.split()[1]
 
-        while self.parser.has_more_commands():
-            self.parser.advance()
-            if self.parser.command_type() == 'C_ARITHMETIC':
-                self.code_writer.write_arithmetic(self.parser.command())
-            elif self.parser.command_type() == 'C_PUSH':
-                self.code_writer.write_push(
-                    self.parser.arg1(), self.parser.arg2())
-            elif self.parser.command_type() == 'C_POP':
-                self.code_writer.write_pop(
-                    self.parser.arg1(), self.parser.arg2())
-            elif self.parser.command_type() == 'C_LABEL':
-                self.code_writer.write_label(self.parser.arg1())
-            elif self.parser.command_type() == 'C_IF':
-                self.code_writer.write_if(self.parser.arg1())
-            elif self.parser.command_type() == 'C_GOTO':
-                self.code_writer.write_goto(self.parser.arg1())
-            elif self.parser.command_type() == 'C_FUNCTION':
-                self.code_writer.write_function(
-                    self.parser.arg1(), self.parser.arg2())
-            elif self.parser.command_type() == 'C_RETURN':
-                self.code_writer.write_return()
-            elif self.parser.command_type() == 'C_CALL':
-                self.code_writer.write_call(
-                    self.parser.arg1(), self.parser.arg2())
-            else:
-                continue
-
-            self.code_writer.write_line('')
-
-
-def main() -> None:
-    input = sys.argv[1]
-    file_path = Path(input)
-    input_is_dir = Path.is_dir(file_path)
-
-    if input_is_dir:
-        vm_files = []
-        for f in Path.iterdir(file_path):
-            if f.name.endswith('.vm'):
-                vm_files.append(f)
-    else:
-        vm_files = [file_path]
-
-    vm_translator = VMTranslator()
-    vm_translator.input_path_is_dir = input_is_dir
-    vm_translator.vm_files_count = len(vm_files)
-
-    child_path = file_path.joinpath(f'{file_path.stem}')
-    vm_translator.asm_file = child_path
-
-    for file in vm_files:
-        vm_translator.current_file = file
-        vm_translator.set_input_output_files(file)
-        vm_translator.translate()
-
-
-if __name__ == '__main__':
-    main()
+    def arg2(self) -> int:
+        return int(self.current_line.split()[2])
