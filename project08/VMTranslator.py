@@ -12,6 +12,7 @@ class VMTranslator():
         self.vm_files_count = 0
         self.asm_file = None
         self.has_boostrap = False
+        self.current_file = None
 
     def set_input_output_files(self, vm_file) -> None:
         self.parser = Parser.Parser(vm_file)
@@ -21,7 +22,7 @@ class VMTranslator():
         else:
             asm_file = vm_file.with_suffix('.asm')
 
-        self.code_writer = CodeWriter.CodeWriter(asm_file)
+        self.code_writer = CodeWriter.CodeWriter(asm_file, self.current_file)
 
     def write_bootstrap(self) -> None:
         if self.input_path_is_dir and self.vm_files_count > 1:
@@ -84,6 +85,7 @@ def main() -> None:
     vm_translator.asm_file = child_path
 
     for file in vm_files:
+        vm_translator.current_file = file
         vm_translator.set_input_output_files(file)
         vm_translator.translate()
 
