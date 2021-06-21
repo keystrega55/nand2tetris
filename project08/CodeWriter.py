@@ -3,7 +3,9 @@ from typing import List
 
 
 class CodeWriter:
-    def __init__(self, asm_file) -> None:
+    def __init__(self, asm_file, vm_file) -> None:
+        self.in_file = vm_file
+        self.in_file_name = Path(vm_file).stem
         self.out_file = asm_file
         self.out_file_name = Path(asm_file).stem
 
@@ -52,7 +54,7 @@ class CodeWriter:
         if segment == 'constant':
             self.write_line(f'@{str(index)}')
         elif segment == 'static':
-            self.write_line(f'@{self.out_file_name}.{str(index)}')
+            self.write_line(f'@{self.in_file_name}.{str(index)}')
         elif segment in ['pointer', 'temp']:
             self.write_line(f'@R{str(address + index)}')  # address type is int
         elif segment in ['local', 'argument', 'this', 'that']:
@@ -177,12 +179,7 @@ class CodeWriter:
         self.lt_count += 1
 
     def create_label(self, label: str, function_type: str = None) -> str:
-        asm_label = ''
-        if self.function_name is not None:
-            asm_label += f'{self.function_name}${label}'
-        else:
-            asm_label += f'{label}'
-
+        asm_label = f'{self.in_file_name}${label}'
         if function_type in ['if', 'goto']:
             return f'@{asm_label}'
         else:
@@ -240,8 +237,8 @@ class CodeWriter:
         # RET = *(FRAME - 5)
         self.write_lines(
             [
-                # f'@{FRAME}', # debug
-                # 'D=M',  # debug - save start of frame
+                f'@{FRAME}',  # debug
+                'D=M',  # debug - save start of frame
                 '@5',
                 'D=D-A',  # adjust address
                 'A=D',  # prepare to load value at address
@@ -325,24 +322,24 @@ class CodeWriter:
             )
             self.push_D_to_stack()
 
-        # ARG = SP - (n - 5)
-        self.write_lines(
-            [
-                '@SP',  # debug - remove if needed
-                'D=M',  # debug - remove if needed
-                f'@{str(num_args + 5)}',
-                'D=D-A',
-                '@ARG',
-                'M=D'
-            ]
-        )
-
         # LCL = SP
         self.write_lines(
             [
                 '@SP',
                 'D=M',
                 '@LCL',
+                'M=D'
+            ]
+        )
+
+        # ARG = SP - (n - 5)
+        self.write_lines(
+            [
+                # '@SP',  # debug - remove if needed
+                # 'D=M',  # debug - remove if needed
+                f'@{str(num_args + 5)}',
+                'D=D-A',
+                '@ARG',
                 'M=D'
             ]
         )
