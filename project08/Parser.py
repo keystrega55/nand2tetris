@@ -23,7 +23,6 @@ class Parser:
         self.lines = self.remove_comments(self.remove_empty_strings(vm_file))
         self.lines.reverse()
         self.current_line = None
-        # self.current_command = None
         self.command_types = self.command_types_dict()
 
     def remove_comments(self, lines: list) -> list:
