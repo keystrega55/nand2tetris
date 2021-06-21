@@ -9,16 +9,23 @@ class VMTranslator():
         self.parser = None
         self.code_writer = None
         self.input_path_is_dir = None
+        self.vm_files_count = 0
+        self.asm_file = None
 
     def set_input_output_files(self, vm_file) -> None:
         self.parser = Parser.Parser(vm_file)
-        asm_file = vm_file.with_suffix('.asm')
+
+        if self.input_path_is_dir:
+            asm_file = self.asm_file.with_suffix('.asm')
+        else:
+            asm_file = vm_file.with_suffix('.asm')
+
         self.code_writer = CodeWriter.CodeWriter(asm_file)
 
     def translate(self) -> None:
-        if self.input_path_is_dir:
+        if self.input_path_is_dir and self.vm_files_count > 1:
             self.code_writer.write_bootstrap()
-            self.code_writer.write_line('')
+            # self.code_writer.write_line('')
 
         while self.parser.has_more_commands():
             self.parser.advance()
@@ -32,10 +39,10 @@ class VMTranslator():
                     self.parser.arg1(), self.parser.arg2())
             elif self.parser.command_type() == 'C_LABEL':
                 self.code_writer.write_label(self.parser.arg1())
-            elif self.parser.command_type() == 'C_GOTO':
-                self.code_writer.write_goto(self.parser.arg1())
             elif self.parser.command_type() == 'C_IF':
                 self.code_writer.write_if(self.parser.arg1())
+            elif self.parser.command_type() == 'C_GOTO':
+                self.code_writer.write_goto(self.parser.arg1())
             elif self.parser.command_type() == 'C_FUNCTION':
                 self.code_writer.write_function(
                     self.parser.arg1(), self.parser.arg2())
@@ -47,7 +54,7 @@ class VMTranslator():
             else:
                 continue
 
-            self.code_writer.write_line('')
+            # self.code_writer.write_line('')
 
 
 def main() -> None:
@@ -65,6 +72,10 @@ def main() -> None:
 
     vm_translator = VMTranslator()
     vm_translator.input_path_is_dir = input_is_dir
+    vm_translator.vm_files_count = len(vm_files)
+
+    child_path = file_path.joinpath(f'{file_path.stem}')
+    vm_translator.asm_file = child_path
 
     for file in vm_files:
         vm_translator.set_input_output_files(file)
