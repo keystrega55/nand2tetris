@@ -179,7 +179,7 @@ class CodeWriter:
     def create_label(self, label: str, function_type: str = None) -> str:
         asm_label = ''
         if self.function_name is not None:
-            asm_label += f'{self.out_file_name}${label}'
+            asm_label += f'{self.function_name}${label}'
         else:
             asm_label += f'{label}'
 
@@ -240,8 +240,8 @@ class CodeWriter:
         # RET = *(FRAME - 5)
         self.write_lines(
             [
-                f'@{FRAME}',
-                'D=M',  # save start of frame
+                # f'@{FRAME}', # debug
+                # 'D=M',  # debug - save start of frame
                 '@5',
                 'D=D-A',  # adjust address
                 'A=D',  # prepare to load value at address
@@ -325,22 +325,24 @@ class CodeWriter:
             )
             self.push_D_to_stack()
 
+        # ARG = SP - (n - 5)
+        self.write_lines(
+            [
+                '@SP',  # debug - remove if needed
+                'D=M',  # debug - remove if needed
+                f'@{str(num_args + 5)}',
+                'D=D-A',
+                '@ARG',
+                'M=D'
+            ]
+        )
+
         # LCL = SP
         self.write_lines(
             [
                 '@SP',
                 'D=M',
                 '@LCL',
-                'M=D'
-            ]
-        )
-
-        # ARG = SP - (n - 5)
-        self.write_lines(
-            [
-                f'@{str(num_args + 5)}',
-                'D=D-A',
-                '@ARG',
                 'M=D'
             ]
         )
