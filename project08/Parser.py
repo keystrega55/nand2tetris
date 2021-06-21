@@ -1,5 +1,4 @@
 import re
-import os
 from pathlib import Path
 
 
@@ -24,8 +23,8 @@ class Parser:
         self.lines = self.remove_comments(self.remove_empty_strings(vm_file))
         self.lines.reverse()
         self.current_line = None
+        # self.current_command = None
         self.command_types = self.command_types_dict()
-        pass
 
     def remove_comments(self, lines: list) -> list:
         return [re.sub(r'//(.+)*', '', line) for line in lines]
@@ -45,11 +44,12 @@ class Parser:
         return self.lines != []
 
     def command_type(self):
-        for key in self.command_types.keys():
-            if key in self.current_line:
-                return self.command_types.get(key)
-
-        return None
+        if len(self.current_line) == 0:
+            return None
+        elif self.current_line.count(' ') < 1:
+            return self.command_types.get(self.current_line.rstrip())
+        else:
+            return self.command_types.get(self.current_line.split()[0])
 
     def command_types_dict(self) -> dict:
         return {
