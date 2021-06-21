@@ -17,334 +17,169 @@ class CodeWriter:
 
         self.addresses = self.address_dict()
 
+    # load M[address] to D
     def write_push(self, segment: str, index: str) -> None:
         self.write_line(f'// push {segment} {index}')
+        self.resolve_address(segment, index)
         if segment == 'constant':  # check
-            self.write_lines(
-                [
-                    f'@{index}',
-                    'D=A',
-                    '@SP',
-                    'A=M',
-                    'M=D',
-                    '@SP',
-                    'M=M+1'
-                ]
-            )
-        elif segment == 'temp':  # check
-            self.write_lines(
-                [
-                    f'@{index}',
-                    'D=A',
-                    f'@{self.addresses.get(segment)}',
-                    'A=D+A',
-                    'D=M',
-                    '@SP',
-                    'A=M',
-                    'M=D',
-                    '@SP',
-                    'M=M+1'
-                ]
-            )
-        elif segment == 'pointer':  # check - all new
-            symbol = 'THIS' if index == '0' else 'THAT'
-            self.write_lines(
-                [
-                    '@SP',
-                    'M=M-1',
-                    'A=M',
-                    'D=M',
-                    f'@{symbol}',
-                    'M=D'
-                ]
-            )
-        elif segment == 'static':  # check - all new
-            self.write_lines(
-                [
-                    '@SP',
-                    'M=M-1',
-                    'A=M',
-                    'D=M',
-                    f'@{self.out_file_name}.{index}',
-                    'M=D'
-                ]
-            )
-        else:  # check
-            self.write_lines(
-                [
-                    f'@{index}',
-                    'D=A',
-                    f'@{self.addresses.get(segment)}',
-                    'A=D+M',
-                    'D=M',
-                    '@SP',
-                    'A=M',
-                    'M=D',
-                    '@SP',
-                    'M=M+1'
-                ]
-            )
+            self.write_line('D=A')
+        else:
+            self.write_line('D=M')
+        self.push_D_to_stack()
 
+    # load D to M[address]
     def write_pop(self, segment: str, index: str) -> None:
-        self.write_line(f'// pop {segment} {index}')  # for debugging
-        if segment == 'temp':
-            self.write_lines(
-                [
-                    f'@{index}',
-                    'D=A',
-                    f'@{self.addresses.get(segment)}'
-                    'D=D+A',
-                    '@frame',
-                    'M=D',
-                    '@SP',
-                    'M=M-1',
-                    'A=M',
-                    'D=M',
-                    '@frame',
-                    'A=M',
-                    'M=D'
-                ]
-            )
-        elif segment == 'pointer':
-            # debug if needed -> compare str to int ?
-            symbol = 'THAT' if index == '1' else 'THIS'
-            self.write_lines(
-                [
-                    '@SP',
-                    'M=M-1',
-                    'A=M',
-                    'D=M',
-                    f'@{symbol}',
-                    'M=D'
-                ]
-            )
+        self.write_line(f'// pop {segment} {index}')
+        self.resolve_address(segment, index)
+        self.write_lines(
+            [
+                'D=A',
+                '@R13',  # store resolved address in R13
+                'M=D'
+            ]
+        )
+        self.pop_stack_to_D()
+        self.write_lines(
+            [
+                '@R13',
+                'A=M',
+                'M=D'
+            ]
+        )
+
+    def resolve_address(self, segment: str, index: int) -> None:
+        address = self.addresses.get(segment)
+        if segment == 'constant':
+            self.write_line(f'@{str(index)}')
         elif segment == 'static':
+            self.write_line(f'@{self.out_file_name}.{str(index)}')
+        elif segment in ['pointer', 'temp']:
+            self.write_line(f'@R{str(address + index)}')  # address type is int
+        elif segment in ['local', 'argument', 'this', 'that']:
             self.write_lines(
                 [
-                    '@SP',
-                    'M=M-1',
-                    'A=M',
+                    f'@{address}',
                     'D=M',
-                    f'@{self.out_file_name}.{index}',
-                    'M=D'
+                    f'@{str(index)}',
+                    'A=D+A'  # D is segment base
                 ]
             )
         else:
-            self.write_lines(
-                [
-                    f'@{index}',
-                    'D=A',
-                    f'@{self.addresses.get(segment)}',
-                    'D=D+M',
-                    '@frame',
-                    'M=D',
-                    '@SP',
-                    'M=M-1',
-                    'A=M',
-                    'D=M',
-                    '@frame',
-                    'A=M',
-                    'M=D'
-                ]
-            )
+            self.raise_unknown_error(segment)
 
     def write_arithmetic(self, operation: str) -> None:
-        self.write_line(f'// {operation}')  # For debugging
+        self.write_line(f'// {operation}')
 
-        if operation == 'add':
-            self.write_add()
+        if operation not in ['neg', 'not']:  # binary operators
+            self.pop_stack_to_D()
+        self.decrement_sp()
+        self.set_A_to_sp()
+
+        if operation == 'add':  # arithmetic operators
+            self.write_line('M=M+D')
         elif operation == 'sub':
-            self.write_sub()
+            self.write_line('M=M-D')
         elif operation == 'and':
-            self.write_and()
+            self.write_line('M=M&D')
         elif operation == 'or':
-            self.write_or()
+            self.write_line('M=M|D')
         elif operation == 'neg':
-            self.write_neg()
+            self.write_line('M=-M')
         elif operation == 'not':
-            self.write_not()
-        elif operation == 'eq':
+            self.write_line('M=!M')
+        elif operation == 'eq':  # Boolean operators
             self.write_eq()
-            self.eq_count += 1
         elif operation == 'gt':
             self.write_gt()
-            self.gt_count += 1
         elif operation == 'lt':
             self.write_lt()
-            self.lt_count += 1
         else:
             self.raise_unknown_error(operation)
 
-    def write_add(self) -> None:  # check
+        self.increment_sp()
+
+    def write_eq(self) -> None:
         self.write_lines(
             [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'M=D+M',
-                '@SP',
-                'M=M+1'
+                'D=M-D',
+                f'@EQ.{self.eq_count}',
+                'D;JEQ'
             ]
         )
-
-    def write_sub(self) -> None:  # check
+        self.set_A_to_sp()
         self.write_lines(
             [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'M=M-D',
-                '@SP',
-                'M=M+1'
+                'M=0',  # False
+                f'@ENDEQ.{self.eq_count}',
+                '0;JMP',
+                f'(EQ.{self.eq_count})'
             ]
         )
-
-    def write_neg(self) -> None:  # check
+        self.set_A_to_sp()
         self.write_lines(
             [
-                '@SP',
-                'AM=M-1',
-                'D=-M'  # new - M=-M
-                'M=D',  # new
-                '@SP',
-                'M=M+1'
-            ]
-        )
-
-    def write_and(self) -> None:
-        self.write_lines(
-            [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'M=D&M',
-                '@SP',
-                'M=M+1'
-            ]
-        )
-
-    def write_or(self) -> None:
-        self.write_lines(
-            [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'M=D|M',
-                '@SP',
-                'M=M+1'
-            ]
-        )
-
-    def write_not(self) -> None:
-        self.write_lines(
-            [
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'D=!M',  # new - M=!M
-                'M=D',  # new
-                '@SP',
-                'M=M+1'
-            ]
-        )
-
-    def write_eq(self) -> None:  # check
-        self.write_lines(
-            [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'D=D-M',
-                f'@eq{self.eq_count}',
-                'D;JEQ',
-                'D=0',
-                f'@eq.end{self.eq_count}',
-                '0;JEQ',  # new - 0;JMP
-                f'(eq{self.eq_count})',
-                'D=-1',
-                f'(eq.end{self.eq_count})',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1'
+                'M=-1',  # True
+                f'(ENDEQ.{self.eq_count})'
             ]
         )
         self.eq_count += 1
 
-    def write_gt(self) -> None:  # check
+    def write_gt(self) -> None:
         self.write_lines(
             [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'D=D-M',
-                f'@gt{self.gt_count}',
-                'D;JGT',  # new - D;JLT
-                'D=0',
-                f'@gt.end{self.gt_count}',
-                '0;JEQ',  # new - 0;JMP
-                f'(gt{self.gt_count})',
-                'D=-1',
-                f'(gt.end{self.gt_count})',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1'
+                'D=M-D',
+                f'@GT.{self.gt_count}',
+                'D;JGT'
+            ]
+        )
+        self.set_A_to_sp()
+        self.write_lines(
+            [
+                'M=0',  # False
+                f'@ENDGT.{self.gt_count}',
+                '0;JMP',
+                f'(GT.{self.gt_count})'
+            ]
+        )
+        self.set_A_to_sp()
+        self.write_lines(
+            [
+                'M=-1',  # True
+                f'(ENDGT.{self.gt_count})'
             ]
         )
         self.gt_count += 1
 
-    def write_lt(self) -> None:  # check
+    def write_lt(self) -> None:
         self.write_lines(
             [
-                '@SP',
-                'AM=M-1',
-                'D=M',
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'D=M-D',  # new - D=D-M
-                f'@lt{self.lt_count}',
-                'D;JLT',  # new - D;JGT
-                'D=0',
-                f'@lt.end{self.lt_count}',
-                '0;JEQ',  # new - 0;JMP
-                f'(lt{self.lt_count})',
-                'D=-1',
-                f'(lt.end{self.lt_count})',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1'
+                'D=M-D',
+                f'@LT.{self.lt_count}',
+                'D;JLT'
+            ]
+        )
+        self.set_A_to_sp()
+        self.write_lines(
+            [
+                'M=0',  # False
+                f'@ENDLT.{self.lt_count}',
+                '0;JMP',
+                f'(LT.{self.lt_count})'
+            ]
+        )
+        self.set_A_to_sp()
+        self.write_lines(
+            [
+                'M=-1',  # True
+                f'(ENDLT.{self.lt_count})'
             ]
         )
         self.lt_count += 1
 
-    def create_label(self, label: str, function_type: str = None) -> str:  # debug if needed
+    def create_label(self, label: str, function_type: str = None) -> str:
         asm_label = ''
         if self.function_name is not None:
-            asm_label += f'{self.function_name}${label}'
+            asm_label += f'{self.out_file_name}${label}'
         else:
             asm_label += f'{label}'
 
@@ -368,175 +203,158 @@ class CodeWriter:
 
     def write_if(self, label: str) -> None:  # check
         self.write_line(f'// if-goto {label}')
+        self.pop_stack_to_D()
         self.write_lines(
             [
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'D=M',
                 f"{self.create_label(label, 'if')}",
                 'D;JNE'
             ]
         )
 
-    def write_function(self, function_name: str, num_locals: str) -> None:  # check
-        self.function_name = function_name
-
+    def write_function(self, function_name: str, num_locals: int) -> None:  # check
         self.write_line(f'// function {function_name} {num_locals}')
         self.write_line(f'({function_name})')
-        for i in range(num_locals):
-            self.write_push('constant', '0')
+
+        for i in range(num_locals):  # push constant 0 i times
+            self.write_line('D=0')
+            self.push_D_to_stack()
 
         self.function_name = function_name
 
     def write_return(self) -> None:  # debug if needed
+        FRAME = 'R13'
+        RET_ADDR = 'R14'
+
         self.write_line(f'// return')
+
+        # FRAME = LCL
         self.write_lines(
             [
-                # endFrame = LCL
                 '@LCL',
                 'D=M',
-                '@frame',
-                'M=D',
+                f'@{FRAME}',
+                'M=D'
+            ]
+        )
 
-                # retAddr = *(endFrame - 5)
+        # RET = *(FRAME - 5)
+        self.write_lines(
+            [
+                f'@{FRAME}',
+                'D=M',  # save start of frame
                 '@5',
-                'D=D-A',
-                'A=D',
-                'D=M',
-                '@return',
-                'M=D',
+                'D=D-A',  # adjust address
+                'A=D',  # prepare to load value at address
+                'D=M',  # store value
+                f'@{RET_ADDR}',
+                'M=D'  # save value
+            ]
+        )
 
-                # *ARG = pop()
-                '@SP',
-                'M=M-1',
-                'A=M',
-                'D=M',
+        # *ARG = pop()
+        self.pop_stack_to_D()
+        self.write_lines(
+            [
                 '@ARG',
                 'A=M',
-                'M=D',
+                'M=D'
+            ]
+        )
 
-                # SP = ARG + 1
+        # SP = ARG + 1
+        self.write_lines(
+            [
                 '@ARG',
-                'D=M+1',
+                'D=M',
                 '@SP',
-                'M=D',
+                'M=D+1'
+            ]
+        )
 
-                # THAT = *(endFrame - 1)
-                '@frame',
-                'D=M',
-                '@1',
-                'D=D-A',
-                # 'D=D-1',  # debug
-                'A=D',
-                'D=M',
-                '@THAT',
-                'M=D',
+        # THAT = *(FRAME - 1)
+        # THIS = *(FRAME - 2)
+        # ARG = *(FRAME - 3)
+        # LCL = *(FRAME - 4)
+        offset = 1
+        for address in ['@THAT', '@THIS', '@ARG', '@LCL']:
+            self.write_lines(
+                [
+                    f'@{FRAME}',
+                    'D=M',  # save start of frame
+                    f'@{str(offset)}',
+                    'D=D-A',  # adjust address
+                    'A=D',  # prepare to load value at address
+                    'D=M',  # store value
+                    f'{address}',
+                    'M=D'  # save value
+                ]
+            )
+            offset += 1
 
-                # THIS = *(endFrame - 2)
-                '@frame',
-                'D=M',
-                '@2',
-                'D=D-A',
-                'A=D',
-                'D=M',
-                '@THIS',
-                'M=D',
-
-                # ARG = *(endFrame - 3)
-                '@frame',
-                'D=M',
-                '@3',
-                'D=D-A',
-                'A=D',
-                'D=M',
-                '@ARG',
-                'M=D',
-
-                # LCL = *(endFrame - 4)
-                '@frame',
-                'D=M',
-                '@4',
-                'D=D-A',
-                'A=D',
-                'D=M',
-                '@LCL',
-                'M=D',
-
-                # goto retAddr
-                '@return',
+        # goto RET_ADDR
+        self.write_lines(
+            [
+                f'@{RET_ADDR}',
                 'A=M',
                 '0;JMP'
             ]
         )
 
     def write_call(self, function_name: str, num_args: int) -> None:  # check
+        # unique return label
+        RET_ADDR = f'{function_name}$Ret.{self.call_count}'
+
         self.write_line(f'// call {function_name} {num_args}')
+
+        # push return address
         self.write_lines(
             [
-                # push return address
-                f'@{function_name}$ret.{self.call_count}',
-                'D=A',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1',
-
-                # Push frame
-                '@LCL',
-                'D=M',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1',
-
-                '@ARG',
-                'D=M',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1',
-
-                '@THIS',
-                'D=M',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1',
-
-                '@THAT',
-                'D=M',
-                '@SP',
-                'A=M',
-                'M=D',
-                '@SP',
-                'M=M+1',
-
-                # ARG = SP - 5 - num_args
-                'D=M',
-                f'@{str(5 + num_args)}',
-                'D=D-A',
-                '@ARG',
-                'M=D',
-
-                # LCL = SP
-                '@SP',
-                'D=M',
-                '@LCL',
-                'M=D',
-
-                # goto function_name
-                f'@{function_name}',
-                '0;JMP',
-
-                # return address
-                f'({function_name}$ret.{self.call_count})'
+                f'@{RET_ADDR}',
+                'D=A'
             ]
         )
+        self.push_D_to_stack()
+
+        # push LCL, ARG, THIS, THAT
+        for address in ['@LCL', '@ARG', '@THIS', '@THAT']:
+            self.write_lines(
+                [
+                    f'{address}',
+                    'D=M'
+                ]
+            )
+            self.push_D_to_stack()
+
+        # LCL = SP
+        self.write_lines(
+            [
+                '@SP',
+                'D=M',
+                '@LCL',
+                'M=D'
+            ]
+        )
+
+        # ARG = SP - (n - 5)
+        self.write_lines(
+            [
+                f'@{str(num_args + 5)}',
+                'D=D-A',
+                '@ARG',
+                'M=D'
+            ]
+        )
+
+        # goto f
+        self.write_lines(
+            [
+                f'@{function_name}',
+                '0;JMP'
+            ]
+        )
+
+        self.write_line(f'({RET_ADDR})')  # (return_address)
+
         self.call_count += 1
 
     def write_bootstrap(self) -> None:
@@ -556,9 +374,9 @@ class CodeWriter:
             'argument': 'ARG',  # R2
             'this': 'THIS',  # R3
             'that': 'THAT',  # R4
-            'pointer': '3',  # R3, R4
-            'temp': '5',  # R5 - R12 (R13 - R15 are free)
-            'static': '16',  # base addresses 16 - 255
+            'pointer': 3,  # R3, R4
+            'temp': 5,  # R5 - R12 (R13 - R15 are free)
+            'static': 16,  # base addresses 16 - 255
         }
 
     def write_line(self, line: str) -> None:
@@ -576,10 +394,22 @@ class CodeWriter:
         self.write_line('M=D')  # Push D to stack
         self.increment_sp()
 
-    def pop_stack(self) -> None:
+    def pop_stack_to_D(self) -> None:
         # Decrement @SP, pop top of stack to D
-        self.write_lines(['@SP',
-                          'AM=M-1'])
+        self.decrement_sp()
+        self.write_lines(
+            [
+                'A=M',
+                'D=M'
+            ]
+        )
+        # self.write_lines( # more efficient
+        #     [
+        #         '@SP',
+        #         'AM=M-1',
+        #         'D=M'
+        #     ]
+        # )
 
     def increment_sp(self) -> None:
         self.write_lines(['@SP',
