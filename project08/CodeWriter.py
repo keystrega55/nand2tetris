@@ -332,7 +332,7 @@ class CodeWriter:
             ]
         )
 
-        # ARG = SP - (n - 5)
+        # ARG = SP - 5 - nArgs
         self.write_lines(
             [
                 # '@SP',  # debug - remove if needed
